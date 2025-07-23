@@ -61,7 +61,7 @@
      * route_id -> Route
      * type_name -> SpacecraftType
 
----
+
 
 ## Relationships & Cardinalities
 
@@ -84,7 +84,7 @@
 
   * 1 SpacecraftType : N Flights
 
----
+
 
 ## Notes on Constraints
 
