@@ -10,7 +10,7 @@
 
 2. **SpaceStation**
 
-   * **Primary Key:** station_id and planet_name
+   * **Primary Key:** station_id
    * Attributes:
 
      * station_name
@@ -53,7 +53,7 @@
    * **Primary Key:** flight_number
    * Attributes:
 
-     * departure_time - time
+     * departure_time - time(24 hours)
      * duration - decimal hours
      * weekdays - set of weekdays
    * **Foreign Keys:**
