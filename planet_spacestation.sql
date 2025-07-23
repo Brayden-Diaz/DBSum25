@@ -23,6 +23,4 @@ CREATE TABLE spaceport (
     PRIMARY KEY (planet_associated, port_name),
     CONSTRAINT fk_spacestation
         FOREIGN KEY (spacestation_name) REFERENCES spacestation(station_name),
-    CONSTRAINT fk_planet
-        FOREIGN KEY (planet_associated) REFERENCES planet(planet_name)
 )
