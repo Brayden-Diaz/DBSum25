@@ -10,7 +10,7 @@
 
 2. **SpaceStation**
 
-   * **Primary Key:** station_id
+   * **Primary Key:** station_id and planet_name
    * Attributes:
 
      * station_name
