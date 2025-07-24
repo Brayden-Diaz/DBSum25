@@ -1,5 +1,3 @@
-# DBSum25
-
 ## Entities & Attributes
 
 1. **Planet**

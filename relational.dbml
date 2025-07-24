@@ -1,0 +1,82 @@
+Table planet {
+  planet_name VARCHAR(50) [not null, pk]
+  size BIGINT [not null]
+  population BIGINT [not null]
+}
+
+Table spacestation {
+  station_name VARCHAR(50) [not null, pk]
+  planet_associated VARCHAR(50)
+  capacity_limit INT [not null]
+}
+
+Table spaceport {
+  port_name VARCHAR(50) [not null]
+  planet_associated VARCHAR(50) [not null]
+  spacestation_name VARCHAR(50)
+  fee INT [not null]
+  capacity INT [not null]
+
+  indexes {
+    (planet_associated, port_name) [pk]
+  }
+}
+
+Table SpacecraftType {
+  type_name VARCHAR(100) [not null, pk]
+  capacity INT [not null]
+  range INT [not null]
+
+  Note: 'CHECK (capacity > 0), CHECK (range > 0)'
+}
+
+Table SpaceportID {
+  spaceport_id INT [not null, pk, increment]
+  port_name VARCHAR(50) [not null]
+  planet_associated VARCHAR(50) [not null]
+}
+
+Table Route {
+  route_id INT [not null, pk, increment]
+  origin_id INT [not null]
+  destination_id INT [not null]
+  distance INT [not null]
+
+  Note: 'CHECK (distance > 0), CHECK (origin_id <> destination_id), UNIQUE (origin_id, destination_id)'
+}
+
+Table Flight {
+  flight_number VARCHAR(20) [not null, pk]
+  route_id INT [not null]
+  spacecraft_type VARCHAR(100) [not null]
+  departure_time TIME [not null]
+  depart_hour TINYINT
+  flight_duration DECIMAL(4,2) [not null]
+
+  Note: 'depart_hour is computed from HOUR(departure_time), CHECK (flight_duration > 0)'
+}
+
+Table FlightSchedule {
+  flight_number VARCHAR(20) [not null]
+  day_of_week ENUM('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday') [not null]
+
+  indexes {
+    (flight_number, day_of_week) [pk]
+  }
+}
+
+Ref: spacestation.planet_associated > planet.planet_name
+
+Ref: spaceport.spacestation_name > spacestation.station_name
+
+Ref: SpaceportID.(planet_associated, port_name) > spaceport.(planet_associated, port_name)
+
+Ref: Route.origin_id > SpaceportID.spaceport_id
+
+Ref: Route.destination_id > SpaceportID.spaceport_id
+
+Ref: Flight.route_id > Route.route_id
+
+Ref: Flight.spacecraft_type > SpacecraftType.type_name
+
+Ref: FlightSchedule.flight_number > Flight.flight_number
