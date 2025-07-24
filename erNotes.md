@@ -8,7 +8,7 @@
      * size - integer
      * population - integer
 
-2. **SpaceStation**
+2. **Space Station**
 
    * **Primary Key:** station_id
    * Attributes:
@@ -40,9 +40,9 @@
      * from_spaceport -> Spaceport
      * to_spaceport -> Spaceport
 
-5. **SpacecraftType**
+5. **Spacecraft**
 
-   * **Primary Key:** type_name
+   * **Primary Key:** spacecraft_name
    * Attributes:
 
      * capacity - integer
@@ -83,6 +83,9 @@
 * **SpacecraftType - isUsedBy -> Flight**
 
   * 1 SpacecraftType : N Flights
+ 
+* **Ternary port + route + flight **
+  *Spacecraft relationship attribute  
 
 
 
