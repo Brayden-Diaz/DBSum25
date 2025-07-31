@@ -30,9 +30,9 @@ CREATE TABLE spaceport (
 CREATE TABLE SpacecraftType (
     type_name VARCHAR(100) PRIMARY KEY,
     capacity  INT NOT NULL,
-    range     INT NOT NULL,
+    `range`     INT NOT NULL,
     CONSTRAINT chk_sc_capacity CHECK (capacity > 0),
-    CONSTRAINT chk_sc_range    CHECK (range > 0)
+    CONSTRAINT chk_sc_range    CHECK (`range` > 0)
 );
 
 CREATE TABLE Route (
