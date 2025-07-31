@@ -111,13 +111,15 @@ def create_flight_table(cursor):
     flight_number   VARCHAR(20) PRIMARY KEY,
     route_id        INT NOT NULL,
     spacecraft_type VARCHAR(100) NOT NULL,
-    departure_day  ENUM("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday") NOT NULL,
-    departure_time  TIME NOT NULL,
-    depart_hour     TINYINT UNSIGNED GENERATED ALWAYS AS (HOUR(departure_time)) STORED,
+    departure_datetime DATETIME NOT NULL,
     flight_duration DECIMAL(4,2) NOT NULL,
     CONSTRAINT fk_flight_route  FOREIGN KEY (route_id)        REFERENCES Route(origin_id),
     CONSTRAINT fk_flight_craft  FOREIGN KEY (spacecraft_type) REFERENCES spacecrafts(type_name),
     CONSTRAINT chk_flight_duration CHECK (flight_duration > 0))
+    CONSTRAINT chk_overcapacity CHECK (
+        (SELECT capacity FROM spacecrafts WHERE type_name = spacecraft_type) <=
+        (SELECT capacity FROM routes, spaceports WHERE ...)
+)
     )
     """)
     db.commit()
