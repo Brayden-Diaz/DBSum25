@@ -24,7 +24,7 @@ VALUES (1, 2, 384000);
 INSERT INTO SpacecraftType (type_name, capacity, `range`)
 VALUES ('D-X', 250, 400000);
 INSERT INTO Flight (flight_number, route_id, spacecraft_type, departure_time, flight_duration)
-VALUES ('FL001', 1, 'Dragon-X', '08:00:00', 99.00);
+VALUES ('FL001', 1, 'D-X', '08:00:00', 99.00);
 
 -- 7. Insert into Schedule Table
 INSERT INTO flightSchedule (flight_number, day_of_week)
@@ -41,6 +41,37 @@ JOIN spaceport d ON r.destination_id = d.spaceport_id;
 SELECT f.flight_number, f.departure_time, f.depart_hour, fs.day_of_week
 FROM Flight f
 JOIN flightSchedule fs ON f.flight_number = fs.flight_number;
+
+-- Should return flight FL001 for AlphaPort (port_name = 'AlphaPort')
+SELECT f.flight_number, sp.port_name
+FROM Flight f
+JOIN Route r ON f.route_id = r.route_id
+JOIN Spaceport sp ON r.origin_id = sp.spaceport_id
+WHERE sp.port_name = 'AlphaPort';
+
+-- Assuming 'FL001' is scheduled on Monday from 'AlphaPort'
+SELECT fs.flight_number, fs.day_of_week, sp.port_name
+FROM FlightSchedule fs
+JOIN Flight f ON fs.flight_number = f.flight_number
+JOIN Route r ON f.route_id = r.route_id
+JOIN Spaceport sp ON r.origin_id = sp.spaceport_id
+WHERE fs.day_of_week BETWEEN 'Monday' AND 'Friday'
+AND sp.port_name = 'AlphaPort';
+
+-- Assuming FL001 arrives at BetaPort
+SELECT fs.flight_number, fs.day_of_week, sp.port_name
+FROM FlightSchedule fs
+JOIN Flight f ON fs.flight_number = f.flight_number
+JOIN Route r ON f.route_id = r.route_id
+JOIN Spaceport sp ON r.destination_id = sp.spaceport_id
+WHERE fs.day_of_week BETWEEN 'Monday' AND 'Friday'
+AND sp.port_name = 'BetaPort';
+
+SELECT r.origin_id, o.port_name AS origin_name,
+       r.destination_id, d.port_name AS dest_name
+FROM Route r
+JOIN spaceport o ON r.origin_id = o.spaceport_id
+JOIN spaceport d ON r.destination_id = d.spaceport_id;
 
 
 -- Should fail: origin = destination
