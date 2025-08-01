@@ -61,7 +61,7 @@ CREATE TABLE Flight (
 
 CREATE TABLE FlightSchedule (
     flight_number VARCHAR(20),
-    day_of_week ENUM('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'),
+    day_of_week ENUM('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday') NOT NULL,
     PRIMARY KEY (flight_number, day_of_week),
     FOREIGN KEY (flight_number) REFERENCES Flight(flight_number)
 );
