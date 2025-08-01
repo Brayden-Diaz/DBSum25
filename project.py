@@ -390,11 +390,10 @@ class SpaceTravelDB(QMainWindow):
             number = self.flight_number_entry.text()
             route_id = int(self.flight_route_entry.text())
             craft_type = self.flight_craft_entry.text()
-            days_raw = self.flight_day_entry.text()
-            time = self.flight_time_entry.text()
+            days_raw = self.flight_days_entry.text()
+            raw_time = self.flight_time_entry.text().strip()
             duration = float(self.flight_duration_entry.text())
 
-            raw_time = self.flight_time_entry.text().strip()
             try:
                 mysql_time = self.parse_time(raw_time)
             except ValueError as e:
@@ -785,6 +784,19 @@ class SpaceTravelDB(QMainWindow):
         if not re.match(r"^\d{2}:\d{2}(:\d{2})?$", departure_time):
             QMessageBox.critical(self, "Validation Error", "Invalid time format.")
             return False
+        
+        # Check for same-planet violation
+        cursor.execute("""
+            SELECT sp1.planet_name AS planet1, sp2.planet_name AS planet2
+            FROM spaceports sp1, spaceports sp2
+            WHERE sp1.spaceport_id = %s AND sp2.spaceport_id = %s
+        """, (origin_id, dest_id))
+        planet_check = cursor.fetchone()
+
+        if planet_check and planet_check[0] and planet_check[1] and planet_check[0] == planet_check[1]:
+            QMessageBox.critical(self, "Validation Error", 
+                                "Flights are not allowed between spaceports on the same planet.")
+            return False
 
         # Insert base flight record
         sql_flight = (
@@ -810,7 +822,38 @@ class SpaceTravelDB(QMainWindow):
             return False
 
         return True
+    
+    def enter_route(self, origin_id, dest_id, distance):
+        if origin_id == dest_id:
+            QMessageBox.critical(self, "Validation Error", "Origin and destination spaceports must be different.")
+            return False
 
+        if distance <= 0:
+            QMessageBox.critical(self, "Validation Error", "Distance must be a positive integer.")
+            return False
+
+        cursor = self.db.cursor()
+
+        # Enforce no routes between spaceports on the same planet
+        cursor.execute("""
+            SELECT sp1.planet_name, sp2.planet_name
+            FROM spaceports sp1, spaceports sp2
+            WHERE sp1.spaceport_id = %s AND sp2.spaceport_id = %s
+        """, (origin_id, dest_id))
+        result = cursor.fetchone()
+        if result and result[0] and result[1] and result[0] == result[1]:
+            QMessageBox.critical(self, "Validation Error", "Routes are not allowed between spaceports on the same planet.")
+            return False
+
+        # Check for duplicates
+        cursor.execute("SELECT COUNT(*) FROM routes WHERE origin_id = %s AND dest_id = %s", (origin_id, dest_id))
+        if cursor.fetchone()[0] > 0:
+            QMessageBox.critical(self, "Validation Error", "This route already exists.")
+            return False
+
+        sql = """INSERT INTO routes (origin_id, dest_id, dist) VALUES (%s, %s, %s)"""
+        values = [origin_id, dest_id, distance]
+        return self.confirm_and_commit(sql, values)
 
     # Query methods
     def get_port_by_port_name_with_flights(self, port_name):
@@ -899,23 +942,95 @@ class SpaceTravelDB(QMainWindow):
         rows = cursor.fetchall()
         self.display_results(rows, "Flights by Route")
 
-    def flight_finder(self, departure_day, origin_id, destination_id, start_time, max_stops):
-        cursor = self.db.cursor()
-        sql = """
-            SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration, r.origin_id, r.dest_id, r.dist, f.spacecraft_type
-            FROM flights f
-            JOIN flight_schedule fs ON f.flight_number = fs.flight_number
-            JOIN routes r ON f.route_id = r.route_id
-            WHERE r.origin_id       = %s
-            AND r.dest_id         = %s
-            AND fs.day_of_week    = %s
-            AND f.departure_time >= %s
-            AND f.departure_time <= ADDTIME(%s, '03:00')
-            LIMIT %s;
-        """
-        cursor.execute(sql, (origin_id, destination_id, departure_day, start_time, max_stops))
-        rows = cursor.fetchall()
-        self.display_results(rows, "Flight Finder Results")
+    def add_hours(self, time_str, hours):
+        from datetime import datetime, timedelta
+        dt = datetime.strptime(time_str, "%H:%M:%S")
+        dt += timedelta(hours=hours)
+        return dt.strftime("%H:%M:%S")
+    
+    def diff_hours(self, t1, t2):
+        from datetime import datetime
+        fmt = "%H:%M:%S"
+        dt1 = datetime.strptime(t1, fmt)
+        dt2 = datetime.strptime(t2, fmt)
+        delta = (dt2 - dt1).total_seconds() / 3600
+        return delta
+
+    def flight_finder(self, departure_day, origin_id, destination_id, start_time_str, max_stops):
+        cursor = self.db.cursor(dictionary=True)
+        start_time = self.parse_time(start_time_str)
+        results = []
+
+        def dfs(current_id, current_time, stops, path, total_time, visited_ports):
+            if stops > max_stops or current_id in visited_ports:
+                return
+
+            cursor.execute("""
+                SELECT f.flight_number, f.departure_time, f.flight_duration, 
+                    f.spacecraft_type, r.origin_id, r.dest_id, r.dist
+                FROM flights f
+                JOIN flight_schedule fs ON f.flight_number = fs.flight_number
+                JOIN routes r ON f.route_id = r.route_id
+                WHERE fs.day_of_week = %s
+                AND r.origin_id = %s
+            """, (departure_day, current_id))
+
+            for row in cursor.fetchall():
+                dep_time = str(row["departure_time"])
+                arr_time = self.add_hours(dep_time, float(row["flight_duration"]))
+
+                # Skip if it's the first flight but dep_time > 3 hrs from start
+                if not path and self.diff_hours(start_time, dep_time) > 3:
+                    continue
+
+                # If it's a connecting flight, apply layover rules
+                if path:
+                    prev_arrival = self.add_hours(path[-1]['departure_time'], float(path[-1]['flight_duration']))
+                    layover = self.diff_hours(prev_arrival, dep_time)
+                    if layover < 1 or layover > 6:
+                        continue
+                    flight_time = float(row["flight_duration"]) + layover
+                else:
+                    flight_time = float(row["flight_duration"])
+
+                new_total_time = total_time + flight_time
+                if new_total_time > 24:
+                    continue  # skip unreasonable itineraries
+
+                new_path = path + [row]
+                next_port = row["dest_id"]
+
+                if next_port == destination_id:
+                    results.append((new_path, new_total_time))
+                else:
+                    dfs(next_port, dep_time, stops + 1, new_path, new_total_time, visited_ports | {current_id})
+
+        dfs(origin_id, start_time, 0, [], 0, set())
+
+        if not results:
+            QMessageBox.information(self, "No Flights", "No valid itineraries found.")
+            return
+
+        result_window = QWidget()
+        result_window.setWindowTitle("Flight Itineraries")
+        layout = QVBoxLayout(result_window)
+        text_area = QTextEdit()
+        text_area.setReadOnly(True)
+
+        for path, total_time in results:
+            text_area.append(f"Total Travel Time: {total_time:.2f} hrs")
+            for f in path:
+                text_area.append(
+                    f"Flight {f['flight_number']} from {f['origin_id']} to {f['dest_id']} | "
+                    f"Depart: {f['departure_time']} | Duration: {f['flight_duration']} hrs"
+                )
+            text_area.append("-" * 50)
+
+        layout.addWidget(text_area)
+        result_window.setMinimumSize(700, 400)
+        result_window.show()
+        self.result_windows.append(result_window)
+
 
     def display_results(self, rows, title):
         """Display query results in a new window"""
