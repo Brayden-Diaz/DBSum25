@@ -304,9 +304,9 @@ class SpaceTravelDB(QMainWindow):
         self.flight_craft_entry = QLineEdit()
         layout.addWidget(self.flight_craft_entry, 2, 1)
         
-        layout.addWidget(QLabel("Departure Day:"), 3, 0)
-        self.flight_day_entry = QLineEdit()
-        layout.addWidget(self.flight_day_entry, 3, 1)
+        layout.addWidget(QLabel("Departure Days (comma-separated):"), 3, 0)
+        self.flight_days_entry = QLineEdit()
+        layout.addWidget(self.flight_days_entry, 3, 1)
         
         layout.addWidget(QLabel("Departure Time (HH:MM):"), 4, 0)
         self.flight_time_entry = QLineEdit()
@@ -439,7 +439,7 @@ class SpaceTravelDB(QMainWindow):
         self.flight_number_entry.clear()
         self.flight_route_entry.clear()
         self.flight_craft_entry.clear()
-        self.flight_day_entry.clear()
+        self.flight_days_entry.clear()
         self.flight_time_entry.clear()
         self.flight_duration_entry.clear()
 
@@ -481,11 +481,11 @@ class SpaceTravelDB(QMainWindow):
         if not ok2: return
         dest_id, ok3 = QInputDialog.getInt(self, "Query", "Enter destination ID:")
         if not ok3: return
-        max_time, ok4 = QInputDialog.getDouble(self, "Query", "Enter max travel time (hours):")
+        dep_time, ok4 = QInputDialog.getText(self, "Query", "Enter desired departure time (HH:MM):")
         if not ok4: return
         max_stops, ok5 = QInputDialog.getInt(self, "Query", "Enter max number of stops:")
         if ok5:
-            self.flight_finder(dep_day, origin_id, dest_id, max_time, max_stops)
+            self.flight_finder(dep_day, origin_id, dest_id, dep_time, max_stops)
 
     # Database methods (keeping the original logic)
     def create_planet_table(self, cursor):
@@ -550,7 +550,9 @@ class SpaceTravelDB(QMainWindow):
             dist INT NOT NULL,
             FOREIGN KEY (origin_id) REFERENCES spaceports(spaceport_id),
             FOREIGN KEY (dest_id) REFERENCES spaceports(spaceport_id),
-            CONSTRAINT chk_route_distance CHECK (dist > 0)
+            CONSTRAINT chk_route_distance CHECK (dist > 0),
+            CONSTRAINT chk_route_not_same CHECK (origin_id <> dest_id),
+            CONSTRAINT uq_route_pair UNIQUE (origin_id, dest_id)
         )
         """)
         self.db.commit()
@@ -707,6 +709,14 @@ class SpaceTravelDB(QMainWindow):
         if not flight_number.strip():
             QMessageBox.critical(self, "Validation Error", "Flight number cannot be empty.")
             return False
+        
+        # Parse and validate days
+        days = [d.strip() for d in days_raw.split(',')]
+        valid_days = {"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"}
+        for day in days:
+            if day not in valid_days:
+                QMessageBox.critical(self, "Validation Error", f"Invalid day: {day}")
+                return False
 
         # Validate duration
         try:
@@ -718,6 +728,7 @@ class SpaceTravelDB(QMainWindow):
             return False
 
         cursor = self.db.cursor()
+
         # Validate route exists
         cursor.execute("SELECT COUNT(*) FROM routes WHERE route_id = %s", (route_id,))
         if cursor.fetchone()[0] == 0:
@@ -729,6 +740,46 @@ class SpaceTravelDB(QMainWindow):
         if cursor.fetchone()[0] == 0:
             QMessageBox.critical(self, "Validation Error", f"Spacecraft type '{spacecraft_type}' does not exist.")
             return False
+        
+        cursor.execute("""
+            SELECT r.dist, s.max_range
+            FROM routes r
+            JOIN spacecrafts s ON s.type_name = %s
+            WHERE r.route_id = %s
+        """, (spacecraft_type, route_id))
+        dist, max_range = cursor.fetchone()
+        if dist > max_range:
+            QMessageBox.critical(self, "Validation Error",
+                f"Route distance {dist} exceeds craft range {max_range}.")
+            return False
+        
+        # Enforce spaceport daily capacity (before inserting)
+        cursor.execute("SELECT origin_id, dest_id FROM routes WHERE route_id = %s", (route_id,))
+        origin_id, dest_id = cursor.fetchone()
+        for day in days:
+            for port_id in (origin_id, dest_id):
+                cursor.execute("""
+                    SELECT COUNT(*)
+                    FROM flights f
+                    JOIN flight_schedule fs ON f.flight_number = fs.flight_number
+                    JOIN routes r           ON f.route_id      = r.route_id
+                    WHERE fs.day_of_week = %s
+                    AND (r.origin_id = %s OR r.dest_id = %s)
+                """, (day, port_id, port_id))
+                count = cursor.fetchone()[0]
+
+                cursor.execute(
+                    "SELECT capacity FROM spaceports WHERE spaceport_id = %s",
+                    (port_id,)
+                )
+                capacity = cursor.fetchone()[0]
+
+                if count >= capacity:
+                    QMessageBox.critical(
+                        self, "Capacity Error",
+                        f"Port ID {port_id} has reached its daily capacity ({capacity}) on {day}."
+                    )
+                    return False
 
         # Validate time format
         if not re.match(r"^\d{2}:\d{2}(:\d{2})?$", departure_time):
@@ -737,30 +788,22 @@ class SpaceTravelDB(QMainWindow):
 
         # Insert base flight record
         sql_flight = (
-            "INSERT INTO flights"
-            "(flight_number, route_id, spacecraft_type, departure_time, flight_duration)"
-            " VALUES (%s, %s, %s, %s, %s)"
+            "INSERT INTO flights "
+            "(flight_number, route_id, spacecraft_type, departure_time, flight_duration) "
+            "VALUES (%s, %s, %s, %s, %s)"
         )
         flight_vals = [flight_number, route_id, spacecraft_type, departure_time, duration_val]
         if not self.confirm_and_commit(sql_flight, flight_vals):
             return False
 
-        # Parse and insert schedule entries
-        days = [d.strip() for d in days_raw.split(',')]
-        valid_days = {"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"}
+        # Insert schedule entries
         try:
             for day in days:
-                if day not in valid_days:
-                    raise ValueError(f"Invalid day: {day}")
                 cursor.execute(
                     "INSERT INTO flight_schedule (flight_number, day_of_week) VALUES (%s, %s)",
                     (flight_number, day)
                 )
             self.db.commit()
-        except ValueError as ve:
-            QMessageBox.critical(self, "Validation Error", str(ve))
-            self.db.rollback()
-            return False
         except mysql.connector.Error as err:
             QMessageBox.critical(self, "Database Error", f"Error scheduling days: {err}")
             self.db.rollback()
@@ -791,20 +834,19 @@ class SpaceTravelDB(QMainWindow):
     def get_departures_by_date_range_and_port(self, start_date, end_date, port_name):
         cursor = self.db.cursor()
         sql = """
-            SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration
+            SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration, r.dist AS distance, f.spacecraft_type
             FROM flights f
             JOIN flight_schedule fs
-            ON f.flight_number = fs.flight_number
+                ON f.flight_number = fs.flight_number
             JOIN routes r
-            ON f.route_id = r.route_id
+                ON f.route_id = r.route_id
             JOIN spaceports sp
-            ON r.origin_id = sp.spaceport_id
+                ON r.origin_id = sp.spaceport_id
             WHERE sp.port_name = %s
             AND fs.day_of_week BETWEEN %s AND %s
             ORDER BY
             FIELD(fs.day_of_week,
-                    'Monday','Tuesday','Wednesday','Thursday',
-                    'Friday','Saturday','Sunday'),
+                    'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'),
             f.departure_time;
         """
         cursor.execute(sql, (port_name, start_date, end_date))
@@ -814,11 +856,13 @@ class SpaceTravelDB(QMainWindow):
     def get_arrivals_by_date_range_and_port(self, start_date, end_date, port_name):
         cursor = self.db.cursor()
         sql = """
-            SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration
+            SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration, r.dist AS distance, f.spacecraft_type
             FROM flights f
             JOIN flight_schedule fs ON f.flight_number = fs.flight_number
-            JOIN routes r ON f.route_id = r.route_id
-            JOIN spaceports sp ON r.dest_id = sp.spaceport_id
+            JOIN routes r
+                ON f.route_id = r.route_id
+            JOIN spaceports sp
+                ON r.dest_id = sp.spaceport_id
             WHERE sp.port_name = %s
             AND fs.day_of_week BETWEEN %s AND %s
             ORDER BY
@@ -834,13 +878,18 @@ class SpaceTravelDB(QMainWindow):
         cursor = self.db.cursor()
         sql = """
             SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration, 
-                   sp1.port_name AS origin, sp2.port_name AS destination, r.dist, f.spacecraft_type
+                   sp1.port_name AS origin, sp2.port_name AS destination, r.dist AS distance, f.spacecraft_type
             FROM flights f
-            JOIN flight_schedule fs ON f.flight_number = fs.flight_number
-            JOIN routes r ON f.route_id = r.route_id
-            JOIN spaceports sp1 ON r.origin_id = sp1.spaceport_id
-            JOIN spaceports sp2 ON r.dest_id   = sp2.spaceport_id
-            WHERE r.origin_id = %s AND r.dest_id = %s
+            JOIN flight_schedule fs
+                ON f.flight_number = fs.flight_number
+            JOIN routes r
+                ON f.route_id = r.route_id
+            JOIN spaceports sp1
+                ON r.origin_id = sp1.spaceport_id
+            JOIN spaceports sp2
+                ON r.dest_id = sp2.spaceport_id
+            WHERE r.origin_id = %s
+            AND r.dest_id   = %s
             ORDER BY
             FIELD(fs.day_of_week,
                     'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'),
@@ -850,7 +899,7 @@ class SpaceTravelDB(QMainWindow):
         rows = cursor.fetchall()
         self.display_results(rows, "Flights by Route")
 
-    def flight_finder(self, departure_date, origin_id, destination_id, max_travel_time, max_stops):
+    def flight_finder(self, departure_day, origin_id, destination_id, start_time, max_stops):
         cursor = self.db.cursor()
         sql = """
             SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration, r.origin_id, r.dest_id, r.dist, f.spacecraft_type
@@ -864,7 +913,7 @@ class SpaceTravelDB(QMainWindow):
             AND f.departure_time <= ADDTIME(%s, '03:00')
             LIMIT %s;
         """
-        cursor.execute(sql, (origin_id, destination_id, departure_date, max_travel_time, max_stops))
+        cursor.execute(sql, (origin_id, destination_id, departure_day, start_time, max_stops))
         rows = cursor.fetchall()
         self.display_results(rows, "Flight Finder Results")
 
