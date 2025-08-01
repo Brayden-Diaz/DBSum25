@@ -393,8 +393,15 @@ class SpaceTravelDB(QMainWindow):
             days_raw = self.flight_day_entry.text()
             time = self.flight_time_entry.text()
             duration = float(self.flight_duration_entry.text())
-            
-            if self.enter_flight(number, route_id, craft_type, days_raw, time, duration):
+
+            raw_time = self.flight_time_entry.text().strip()
+            try:
+                mysql_time = self.parse_time(raw_time)
+            except ValueError as e:
+                QMessageBox.critical(self, "Invalid Time", str(e))
+                return
+            # pass mysql_time into enter_flight instead of raw_time
+            if self.enter_flight(number, route_id, craft_type, days_raw, mysql_time, duration):
                 self.clear_flight_form()
                 QMessageBox.information(self, "Success", "Flight added successfully!")
         except ValueError:
@@ -576,6 +583,30 @@ class SpaceTravelDB(QMainWindow):
         )
         """)
         self.db.commit()
+
+    def parse_time(self, time_str):
+        """
+        Accepts 'HH:MM' or 'HH:MM:SS' (or even 'YYYY-MM-DD HH:MM:SS').
+        Returns a string 'HH:MM:SS' suitable for MySQL TIME.
+        """
+        # strip date if present
+        if ' ' in time_str:
+            time_part = time_str.split(' ')[1]
+        else:
+            time_part = time_str
+
+        parts = time_part.split(':')
+        if len(parts) == 2:
+            hh, mm = parts
+            ss = '00'
+        elif len(parts) == 3:
+            hh, mm, ss = parts
+        else:
+            raise ValueError(f"Unrecognized time format: {time_str}")
+
+        # zero-pad and validate ranges
+        hh, mm, ss = hh.zfill(2), mm.zfill(2), ss.zfill(2)
+        return f"{hh}:{mm}:{ss}"
 
 
     def enter_planet(self, planet_name, size, population):
