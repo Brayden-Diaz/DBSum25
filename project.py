@@ -483,8 +483,10 @@ class SpaceTravelDB(QMainWindow):
         dep_time, ok4 = QInputDialog.getText(self, "Query", "Enter desired departure time (HH:MM):")
         if not ok4: return
         max_stops, ok5 = QInputDialog.getInt(self, "Query", "Enter max number of stops:")
-        if ok5:
-            self.flight_finder(dep_day, origin_id, dest_id, dep_time, max_stops)
+        if not ok5: return
+        max_time, ok6 = QInputDialog.getDouble(self, "Query", "Enter max total travel time (in hours):", decimals=2)
+        if ok6:
+            self.flight_finder(dep_day, origin_id, dest_id, dep_time, max_stops, max_time)
 
     # Database methods (keeping the original logic)
     def create_planet_table(self, cursor):
@@ -956,7 +958,7 @@ class SpaceTravelDB(QMainWindow):
         delta = (dt2 - dt1).total_seconds() / 3600
         return delta
 
-    def flight_finder(self, departure_day, origin_id, destination_id, start_time_str, max_stops):
+    def flight_finder(self, departure_day, origin_id, destination_id, start_time_str, max_stops, max_total_time):
         cursor = self.db.cursor(dictionary=True)
         start_time = self.parse_time(start_time_str)
         results = []
@@ -979,11 +981,9 @@ class SpaceTravelDB(QMainWindow):
                 dep_time = str(row["departure_time"])
                 arr_time = self.add_hours(dep_time, float(row["flight_duration"]))
 
-                # Skip if it's the first flight but dep_time > 3 hrs from start
                 if not path and self.diff_hours(start_time, dep_time) > 3:
                     continue
 
-                # If it's a connecting flight, apply layover rules
                 if path:
                     prev_arrival = self.add_hours(path[-1]['departure_time'], float(path[-1]['flight_duration']))
                     layover = self.diff_hours(prev_arrival, dep_time)
@@ -994,8 +994,8 @@ class SpaceTravelDB(QMainWindow):
                     flight_time = float(row["flight_duration"])
 
                 new_total_time = total_time + flight_time
-                if new_total_time > 24:
-                    continue  # skip unreasonable itineraries
+                if new_total_time > max_total_time:
+                    continue
 
                 new_path = path + [row]
                 next_port = row["dest_id"]
@@ -1030,6 +1030,7 @@ class SpaceTravelDB(QMainWindow):
         result_window.setMinimumSize(700, 400)
         result_window.show()
         self.result_windows.append(result_window)
+
 
 
     def display_results(self, rows, title):
