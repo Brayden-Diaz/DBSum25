@@ -160,7 +160,11 @@ class SpaceTravelDB(QMainWindow):
         btn5 = QPushButton("Flight Finder")
         btn5.clicked.connect(self.query_flight_finder)
         buttons_layout.addWidget(btn5)
-        
+
+        btn6 = QPushButton("Create New Flight (Guided)")
+        btn6.clicked.connect(self.create_new_flight_interactive)
+        buttons_layout.addWidget(btn6)
+
         layout.addLayout(buttons_layout)
         layout.addStretch()
 
@@ -321,6 +325,106 @@ class SpaceTravelDB(QMainWindow):
         layout.addWidget(submit_btn, 6, 0, 1, 2)
         
         parent_layout.addWidget(group)
+
+    def create_new_flight_interactive(self):
+        cursor = self.db.cursor()
+
+        # Get source and destination ports
+        source, ok1 = QInputDialog.getText(self, "New Flight", "Enter source spaceport name:")
+        if not ok1 or not source.strip():
+            return
+        dest, ok2 = QInputDialog.getText(self, "New Flight", "Enter destination spaceport name:")
+        if not ok2 or not dest.strip():
+            return
+        if source == dest:
+            QMessageBox.warning(self, "Validation Error", "Source and destination cannot be the same.")
+            return
+
+        # Get spaceport IDs
+        cursor.execute("SELECT spaceport_id, fee FROM spaceports WHERE port_name = %s", (source,))
+        src_row = cursor.fetchone()
+        cursor.execute("SELECT spaceport_id, fee FROM spaceports WHERE port_name = %s", (dest,))
+        dest_row = cursor.fetchone()
+
+        if not src_row or not dest_row:
+            QMessageBox.warning(self, "Not Found", "Source or destination port not found.")
+            return
+        src_id, src_fee = src_row
+        dest_id, dest_fee = dest_row
+
+        # Check if route exists
+        cursor.execute("SELECT route_id, dist FROM routes WHERE origin_id = %s AND dest_id = %s", (src_id, dest_id))
+        route_row = cursor.fetchone()
+
+        if not route_row:
+            # Prompt to create route
+            reply = QMessageBox.question(self, "Route Missing",
+                                        "Route does not exist. Do you want to create it?",
+                                        QMessageBox.Yes | QMessageBox.No)
+            if reply == QMessageBox.No:
+                return
+            dist, ok3 = QInputDialog.getInt(self, "Route Distance", "Enter distance:")
+            if not ok3 or dist <= 0:
+                return
+            if not self.enter_route(src_id, dest_id, dist):
+                return
+            cursor.execute("SELECT route_id FROM routes WHERE origin_id = %s AND dest_id = %s", (src_id, dest_id))
+            route_id = cursor.fetchone()[0]
+        else:
+            route_id, dist = route_row
+
+        # Get spacecrafts that can cover distance
+        cursor.execute("SELECT type_name FROM spacecrafts WHERE max_range >= %s", (dist,))
+        ships = [row[0] for row in cursor.fetchall()]
+        if not ships:
+            QMessageBox.warning(self, "No Spacecraft", "No spacecrafts can cover the distance.")
+            return
+
+        ship, ok4 = QInputDialog.getItem(self, "Select Spacecraft", "Choose a spacecraft:", ships, editable=False)
+        if not ok4:
+            return
+
+        # Get other flight info
+        days, ok5 = QInputDialog.getText(self, "Flight Days", "Enter days (comma-separated):")
+        if not ok5 or not days:
+            return
+        time_str, ok6 = QInputDialog.getText(self, "Departure Time", "Enter time (HH:MM):")
+        if not ok6 or not time_str:
+            return
+        duration, ok7 = QInputDialog.getDouble(self, "Flight Duration", "Enter duration (hrs):", decimals=2)
+        if not ok7 or duration <= 0:
+            return
+
+        try:
+            dep_time = self.parse_time(time_str)
+        except ValueError as e:
+            QMessageBox.critical(self, "Time Format Error", str(e))
+            return
+
+        # Calculate fee (example logic)
+        fee_estimate = src_fee + dest_fee
+
+        # Confirm flight details
+        summary = (
+            f"Source: {source}\nDestination: {dest}\nRoute Distance: {dist} km\n"
+            f"Spacecraft: {ship}\nDays: {days}\nTime: {dep_time}\n"
+            f"Duration: {duration:.2f} hrs\nEstimated Fee: {fee_estimate}"
+        )
+        reply = QMessageBox.question(self, "Confirm Flight", summary,
+                                    QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.No:
+            return
+
+        # Prompt for flight number
+        flight_number, ok8 = QInputDialog.getText(self, "Flight Number", "Enter flight number:")
+        if not ok8 or not flight_number.strip():
+            return
+
+        # Final insert
+        success = self.enter_flight(flight_number.strip(), route_id, ship, days, dep_time, duration)
+        if success:
+            QMessageBox.information(self, "Success", "Flight created successfully!")
+
 
     # Submit methods
     def submit_planet(self):
