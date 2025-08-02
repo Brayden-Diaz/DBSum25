@@ -21,6 +21,7 @@ CREATE TABLE spaceports (
     spacestation_name VARCHAR(50) DEFAULT NULL,
     fee INT NOT NULL,
     capacity INT NOT NULL,
+    CONSTRAINT chk_fee_nonnegative CHECK (fee >= 0),
     CONSTRAINT chk_spaceport_capacity CHECK (capacity > 0),
     CONSTRAINT fk_spacestation
         FOREIGN KEY (spacestation_name) REFERENCES spacestations(station_name),
