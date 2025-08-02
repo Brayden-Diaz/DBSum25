@@ -204,9 +204,9 @@ class SpaceTravelDB(QMainWindow):
         self.station_planet_entry = QLineEdit()
         layout.addWidget(self.station_planet_entry, 1, 1)
         
-        layout.addWidget(QLabel("Capacity Limit:"), 2, 0)
-        self.station_capacity_entry = QLineEdit()
-        layout.addWidget(self.station_capacity_entry, 2, 1)
+        # layout.addWidget(QLabel("Capacity Limit:"), 2, 0)
+        # self.station_capacity_entry = QLineEdit()
+        # layout.addWidget(self.station_capacity_entry, 2, 1)
         
         submit_btn = QPushButton("Add Space Station")
         submit_btn.clicked.connect(self.submit_spacestation)
@@ -443,9 +443,9 @@ class SpaceTravelDB(QMainWindow):
         try:
             name = self.station_name_entry.text()
             planet = self.station_planet_entry.text() or None
-            capacity = int(self.station_capacity_entry.text())
+            # capacity = int(self.station_capacity_entry.text())
             
-            if self.enter_spacestation(name, None, planet, capacity):
+            if self.enter_spacestation(name, None, planet):
                 self.clear_spacestation_form()
                 QMessageBox.information(self, "Success", "Space station added successfully!")
         except ValueError:
@@ -519,7 +519,7 @@ class SpaceTravelDB(QMainWindow):
     def clear_spacestation_form(self):
         self.station_name_entry.clear()
         self.station_planet_entry.clear()
-        self.station_capacity_entry.clear()
+        # self.station_capacity_entry.clear()
 
     def clear_spaceport_form(self):
         self.port_name_entry.clear()
@@ -609,8 +609,7 @@ class SpaceTravelDB(QMainWindow):
         CREATE TABLE spacestations (
             station_name VARCHAR(50) NOT NULL PRIMARY KEY,
             planet_associated VARCHAR(50) DEFAULT NULL,
-            capacity_limit INT NOT NULL,
-                FOREIGN KEY (planet_associated) REFERENCES planets(planet_name)
+            FOREIGN KEY (planet_associated) REFERENCES planets(planet_name) # this line was right under capacity limit
         )
         """)
         self.db.commit()
@@ -731,30 +730,25 @@ class SpaceTravelDB(QMainWindow):
         values = [planet_name, size, population]
         return self.confirm_and_commit(sql, values)
 
-    def enter_spacestation(self, station_name, has_spaceport, planet_associated, capacity_limit):
+    def enter_spacestation(self, station_name, has_spaceport, planet_associated):
         if not station_name.strip():
             QMessageBox.critical(self, "Validation Error", "Station name cannot be empty.")
             return False
+
         if planet_associated and not planet_associated.strip():
             QMessageBox.critical(self, "Validation Error", "Planet associated must be a valid string or NULL.")
             return False
-        if not isinstance(capacity_limit, int) or capacity_limit <= 0:
-            QMessageBox.critical(self, "Validation Error", "Capacity must be a positive integer.")
-            return False
-        
+
         cursor = self.db.cursor()
         cursor.execute("SELECT COUNT(*) FROM planets WHERE planet_name = %s", (planet_associated,))
+        if planet_associated and cursor.fetchone()[0] == 0:
+            QMessageBox.critical(self, "Validation Error", f"Planet '{planet_associated}' does not exist.")
+            return False
 
-        if planet_associated:
-            cursor = self.db.cursor()
-            cursor.execute("SELECT COUNT(*) FROM planets WHERE planet_name = %s", (planet_associated,))
-            if cursor.fetchone()[0] == 0:
-                QMessageBox.critical(self, "Validation Error", f"Planet '{planet_associated}' does not exist.")
-                return False
-
-        sql = """INSERT INTO spacestations VALUES (%s, %s, %s)"""
-        values = [station_name, planet_associated, capacity_limit]
+        sql = """INSERT INTO spacestations (station_name, planet_associated) VALUES (%s, %s)"""
+        values = [station_name, planet_associated]
         return self.confirm_and_commit(sql, values)
+
 
     def enter_spaceport(self, port_name, planet_associated, spacestation_name, fee, capacity):
         if not port_name.strip():

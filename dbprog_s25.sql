@@ -8,7 +8,6 @@ CREATE TABLE planets (
 CREATE TABLE spacestations (
     station_name VARCHAR(50) NOT NULL,
     planet_associated VARCHAR(50) DEFAULT NULL,
-    capacity_limit INT NOT NULL,
     PRIMARY KEY (station_name),
     CONSTRAINT fk_planet
         FOREIGN KEY (planet_associated) REFERENCES planets(planet_name)
