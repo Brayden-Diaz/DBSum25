@@ -16,7 +16,7 @@ CREATE TABLE spacestations (
 CREATE TABLE spaceports (
     spaceport_id INT AUTO_INCREMENT PRIMARY KEY,
     port_name VARCHAR(50) NOT NULL,
-    planet_associated VARCHAR(50) NOT NULL,
+    planet_associated VARCHAR(50) DEFAULT NULL,
     spacestation_name VARCHAR(50) DEFAULT NULL,
     fee INT NOT NULL,
     capacity INT NOT NULL,

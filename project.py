@@ -609,7 +609,7 @@ class SpaceTravelDB(QMainWindow):
         CREATE TABLE spacestations (
             station_name VARCHAR(50) NOT NULL PRIMARY KEY,
             planet_associated VARCHAR(50) DEFAULT NULL,
-            FOREIGN KEY (planet_associated) REFERENCES planets(planet_name) # this line was right under capacity limit
+            FOREIGN KEY (planet_associated) REFERENCES planets(planet_name) 
         )
         """)
         self.db.commit()
@@ -619,14 +619,14 @@ class SpaceTravelDB(QMainWindow):
         CREATE TABLE spaceports (
             spaceport_id INT PRIMARY KEY AUTO_INCREMENT,
             port_name VARCHAR(100) NOT NULL,
-            planet_name VARCHAR(50) NULL,
-            station_name VARCHAR(50) NULL,
+            planet_associated VARCHAR(50) NULL,
+            spacestation_name VARCHAR(50) NULL,
             capacity INT NOT NULL,
             fee INT NOT NULL,
-            FOREIGN KEY (planet_name) REFERENCES planets(planet_name),
-            FOREIGN KEY (station_name) REFERENCES spacestations(station_name),
-            UNIQUE KEY uq_station (station_name),
-            UNIQUE KEY uq_planet_port (planet_name, port_name),
+            FOREIGN KEY (planet_associated) REFERENCES planets(planet_name),
+            FOREIGN KEY (spacestation_name) REFERENCES spacestations(spacestation_name),
+            UNIQUE KEY uq_station (spacestation_name),
+            UNIQUE KEY uq_planet_port (planet_associated, port_name),
             CONSTRAINT chk_spaceport_capacity CHECK (capacity > 0),
             CONSTRAINT chk_spaceport_fee CHECK (fee >= 0)
         )
@@ -784,7 +784,7 @@ class SpaceTravelDB(QMainWindow):
                 QMessageBox.critical(self, "Validation Error", f"Station '{spacestation_name}' does not exist.")
                 return False
 
-        sql = """INSERT INTO spaceports (port_name, planet_name, station_name, fee, capacity) VALUES (%s, %s, %s, %s, %s)"""
+        sql = """INSERT INTO spaceports (port_name, planet_associated, spacestation_name, fee, capacity) VALUES (%s, %s, %s, %s, %s)"""
         values = [port_name, planet_associated, spacestation_name, fee, capacity]
         return self.confirm_and_commit(sql, values)
 
