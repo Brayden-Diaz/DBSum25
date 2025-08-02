@@ -181,3 +181,30 @@ JOIN spaceports sp ON r.destination_id = sp.spaceport_id
 WHERE fs.day_of_week BETWEEN 'Monday' AND 'Friday'
   AND sp.port_name = 'BetaPort';
 
+
+
+-- Deletion --
+
+-- Disable foreign key checks to avoid constraint errors while deleting
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- Clear child tables first
+DELETE FROM flightSchedule;
+DELETE FROM flights;
+DELETE FROM routes;
+DELETE FROM spaceports;
+DELETE FROM spacestations;
+DELETE FROM spacecrafttypes;
+DELETE FROM planets;
+
+-- Re-enable foreign key checks
+SET FOREIGN_KEY_CHECKS = 1;
+
+
+DROP TABLE IF EXISTS flightSchedule;
+DROP TABLE IF EXISTS flights;
+DROP TABLE IF EXISTS routes;
+DROP TABLE IF EXISTS spacecraftTypes;
+DROP TABLE IF EXISTS spaceports;
+DROP TABLE IF EXISTS spacestations;
+DROP TABLE IF EXISTS planets;
