@@ -299,30 +299,38 @@ class SpaceTravelDB(QMainWindow):
         layout.addWidget(QLabel("Flight Number:"), 0, 0)
         self.flight_number_entry = QLineEdit()
         layout.addWidget(self.flight_number_entry, 0, 1)
-        
-        layout.addWidget(QLabel("Route ID:"), 1, 0)
-        self.flight_route_entry = QLineEdit()
-        layout.addWidget(self.flight_route_entry, 1, 1)
-        
-        layout.addWidget(QLabel("Spacecraft Type:"), 2, 0)
+
+        layout.addWidget(QLabel("Origin Port Name:"), 1, 0)
+        self.flight_origin_entry = QLineEdit()
+        layout.addWidget(self.flight_origin_entry, 1, 1)
+
+        layout.addWidget(QLabel("Destination Port Name:"), 2, 0)
+        self.flight_dest_entry = QLineEdit()
+        layout.addWidget(self.flight_dest_entry, 2, 1)
+
+        layout.addWidget(QLabel("Distance:"), 3, 0)
+        self.flight_distance_entry = QLineEdit()
+        layout.addWidget(self.flight_distance_entry, 3, 1)        
+
+        layout.addWidget(QLabel("Spacecraft Type:"), 4, 0)
         self.flight_craft_entry = QLineEdit()
-        layout.addWidget(self.flight_craft_entry, 2, 1)
+        layout.addWidget(self.flight_craft_entry, 4, 1)
         
-        layout.addWidget(QLabel("Departure Days (comma-separated):"), 3, 0)
+        layout.addWidget(QLabel("Departure Days (comma-separated):"), 5, 0)
         self.flight_days_entry = QLineEdit()
-        layout.addWidget(self.flight_days_entry, 3, 1)
+        layout.addWidget(self.flight_days_entry, 5, 1)
         
-        layout.addWidget(QLabel("Departure Time (HH:MM):"), 4, 0)
+        layout.addWidget(QLabel("Departure Time (HH:MM):"), 6, 0)
         self.flight_time_entry = QLineEdit()
-        layout.addWidget(self.flight_time_entry, 4, 1)
+        layout.addWidget(self.flight_time_entry, 6, 1)
         
-        layout.addWidget(QLabel("Flight Duration:"), 5, 0)
+        layout.addWidget(QLabel("Flight Duration:"), 7, 0)
         self.flight_duration_entry = QLineEdit()
-        layout.addWidget(self.flight_duration_entry, 5, 1)
+        layout.addWidget(self.flight_duration_entry, 7, 1)
         
         submit_btn = QPushButton("Add Flight")
         submit_btn.clicked.connect(self.submit_flight)
-        layout.addWidget(submit_btn, 6, 0, 1, 2)
+        layout.addWidget(submit_btn, 8, 0, 1, 2)
         
         parent_layout.addWidget(group)
 
@@ -340,41 +348,42 @@ class SpaceTravelDB(QMainWindow):
             QMessageBox.warning(self, "Validation Error", "Source and destination cannot be the same.")
             return
 
-        # Get spaceport IDs
-        cursor.execute("SELECT spaceport_id, fee FROM spaceports WHERE port_name = %s", (source,))
+        # Get distance early
+        dist, ok3 = QInputDialog.getInt(self, "Route Distance", "Enter distance:")
+        if not ok3 or dist <= 0:
+            return
+
+        # Ensure spaceports exist and get fees
+        cursor.execute("SELECT fee FROM spaceports WHERE port_name = %s", (source,))
         src_row = cursor.fetchone()
-        cursor.execute("SELECT spaceport_id, fee FROM spaceports WHERE port_name = %s", (dest,))
+        cursor.execute("SELECT fee FROM spaceports WHERE port_name = %s", (dest,))
         dest_row = cursor.fetchone()
 
         if not src_row or not dest_row:
             QMessageBox.warning(self, "Not Found", "Source or destination port not found.")
             return
-        src_id, src_fee = src_row
-        dest_id, dest_fee = dest_row
+        src_fee = src_row[0]
+        dest_fee = dest_row[0]
 
-        # Check if route exists
-        cursor.execute("SELECT route_id, dist FROM routes WHERE origin_id = %s AND dest_id = %s", (src_id, dest_id))
-        route_row = cursor.fetchone()
+        # Try to find existing route
+        cursor.execute("SELECT route_id FROM routes WHERE origin_id = (SELECT spaceport_id FROM spaceports WHERE port_name = %s) AND dest_id = (SELECT spaceport_id FROM spaceports WHERE port_name = %s)", (source, dest))
+        row = cursor.fetchone()
 
-        if not route_row:
-            # Prompt to create route
+        if row:
+            route_id = row[0]
+        else:
             reply = QMessageBox.question(self, "Route Missing",
                                         "Route does not exist. Do you want to create it?",
                                         QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.No:
                 return
-            dist, ok3 = QInputDialog.getInt(self, "Route Distance", "Enter distance:")
-            if not ok3 or dist <= 0:
+
+            route_id = self.enter_route(source, dest, dist)
+            if not route_id:
                 return
-            if not self.enter_route(source, dest, dist):
-                return
-            cursor.execute("SELECT route_id FROM routes WHERE origin_id = %s AND dest_id = %s", (src_id, dest_id))
-            route_id = cursor.fetchone()[0]
-        else:
-            route_id, dist = route_row
 
         # Get spacecrafts that can cover distance
-        cursor.execute("SELECT type_name FROM spacecrafts WHERE max_range >= %s", (dist,))
+        cursor.execute("SELECT type_name FROM SpacecraftTypes WHERE max_range >= %s", (dist,))
         ships = [row[0] for row in cursor.fetchall()]
         if not ships:
             QMessageBox.warning(self, "No Spacecraft", "No spacecrafts can cover the distance.")
@@ -494,25 +503,59 @@ class SpaceTravelDB(QMainWindow):
             QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric distance.")
 
     def submit_flight(self):
-        try:
-            number = self.flight_number_entry.text()
-            route_id = int(self.flight_route_entry.text())
-            craft_type = self.flight_craft_entry.text()
-            days_raw = self.flight_days_entry.text()
-            raw_time = self.flight_time_entry.text().strip()
-            duration = float(self.flight_duration_entry.text())
+        cursor = self.db.cursor()
 
-            try:
-                mysql_time = self.parse_time(raw_time)
-            except ValueError as e:
-                QMessageBox.critical(self, "Invalid Time", str(e))
-                return
-            # pass mysql_time into enter_flight instead of raw_time
-            if self.enter_flight(number, route_id, craft_type, days_raw, mysql_time, duration):
-                self.clear_flight_form()
-                QMessageBox.information(self, "Success", "Flight added successfully!")
+        # 1. Get Origin, Destination, and Distance from the form
+        origin_name = self.flight_origin_entry.text().strip()
+        dest_name = self.flight_dest_entry.text().strip()
+        try:
+            distance = int(self.flight_distance_entry.text().strip())
         except ValueError:
-            QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric values.")
+            QMessageBox.warning(self, "Invalid Input", "Distance must be a valid integer.")
+            return
+
+        if not origin_name or not dest_name or origin_name == dest_name:
+            QMessageBox.warning(self, "Validation Error", "Origin and destination must be different and non-empty.")
+            return
+
+        # 3. Get spaceport IDs
+        cursor.execute("SELECT spaceport_id FROM spaceports WHERE port_name = %s", (origin_name,))
+        origin_id = cursor.fetchone()[0]
+        cursor.execute("SELECT spaceport_id FROM spaceports WHERE port_name = %s", (dest_name,))
+        dest_id = cursor.fetchone()[0]
+
+        # 4. Retrieve route_id
+        cursor.execute("SELECT route_id FROM routes WHERE origin_id = %s AND dest_id = %s", (origin_id, dest_id))
+        route = cursor.fetchone()
+        if route:
+            route_id = route[0]
+        else:
+            # Route doesn't exist: create it with safe fallback
+            route_id = self.enter_route(origin_name, dest_name, distance)
+            if not route_id:
+                return  # enter_route will show error message
+
+        # 5. Get spacecraft
+        craft = self.flight_craft_entry.text().strip()
+        if not craft:
+            QMessageBox.warning(self, "Validation Error", "Spacecraft type is required.")
+            return
+
+        # 6. Get other flight info
+        flight_number = self.flight_number_entry.text().strip()
+        days = self.flight_days_entry.text().strip()
+        time_str = self.flight_time_entry.text().strip()
+        try:
+            dep_time = self.parse_time(time_str)
+            duration = float(self.flight_duration_entry.text())
+        except Exception:
+            QMessageBox.warning(self, "Invalid Input", "Check time format (HH:MM) and ensure duration is a number.")
+            return
+
+        # 7. Final insert
+        success = self.enter_flight(flight_number, route_id, craft, days, dep_time, duration)
+        if success:
+            QMessageBox.information(self, "Success", "Flight created successfully!")
 
     # Clear form methods
     def clear_planet_form(self):
@@ -575,18 +618,49 @@ class SpaceTravelDB(QMainWindow):
             self.get_arrivals_by_date_range_and_port(start_day, end_day, port_name)
 
     def query_flights_by_route(self):
-        origin_id, ok1 = QInputDialog.getInt(self, "Query", "Enter origin spaceport ID:")
-        if not ok1: return
-        dest_id, ok2 = QInputDialog.getInt(self, "Query", "Enter destination spaceport ID:")
-        if ok2:
-            self.get_flights_by_route(origin_id, dest_id)
+        origin_name, ok1 = QInputDialog.getText(self, "Query", "Enter origin port name:")
+        dest_name, ok2 = QInputDialog.getText(self, "Query", "Enter destination port name:")
+        if not ok1 or not ok2 or not origin_name.strip() or not dest_name.strip():
+            return
+        
+        cursor = self.db.cursor()
+        cursor.execute("SELECT spaceport_id FROM spaceports WHERE port_name = %s", (origin_name,))
+        origin_result = cursor.fetchone()
+        cursor.execute("SELECT spaceport_id FROM spaceports WHERE port_name = %s", (dest_name,))
+        dest_result = cursor.fetchone()
+
+        if not origin_result or not dest_result:
+            QMessageBox.warning(self, "Not Found", "One or both port names not found.")
+            return
+
+        origin_id = origin_result[0]
+        dest_id = dest_result[0]
+
+        cursor.execute("""
+            SELECT f.flight_number, s.port_name AS origin, d.port_name AS destination, f.departure_time
+            FROM flights f
+            JOIN routes r ON f.route_id = r.route_id
+            JOIN spaceports s ON r.origin_id = s.spaceport_id
+            JOIN spaceports d ON r.dest_id = d.spaceport_id
+            WHERE r.origin_id = %s AND r.dest_id = %s
+        """, (origin_id, dest_id))
+
+        rows = cursor.fetchall()
+        if not rows:
+            QMessageBox.information(self, "No Results", "No flights found between those ports.")
+            return
+
+        output = "\n".join(
+            f"Flight: {r[0]}, From: {r[1]}, To: {r[2]}, Departs at: {r[3]}" for r in rows
+        )
+        QMessageBox.information(self, "Flights Between Ports", output)
 
     def query_flight_finder(self):
         dep_day, ok1 = QInputDialog.getText(self, "Query", "Enter departure day:")
         if not ok1: return
-        origin_id, ok2 = QInputDialog.getInt(self, "Query", "Enter origin ID:")
+        origin_id, ok2 = QInputDialog.getInt(self, "Query", "Enter origin port name:")
         if not ok2: return
-        dest_id, ok3 = QInputDialog.getInt(self, "Query", "Enter destination ID:")
+        dest_id, ok3 = QInputDialog.getInt(self, "Query", "Enter destination port name:")
         if not ok3: return
         dep_time, ok4 = QInputDialog.getText(self, "Query", "Enter desired departure time (HH:MM):")
         if not ok4: return
@@ -599,7 +673,7 @@ class SpaceTravelDB(QMainWindow):
     # Database methods (keeping the original logic)
     def create_planet_table(self, cursor):
         cursor.execute("""
-        CREATE TABLE planets (
+        CREATE TABLE IF NOT EXISTS planets (
         planet_name VARCHAR(50) NOT NULL UNIQUE,
         size BIGINT NOT NULL,
         population BIGINT NOT NULL,
@@ -610,7 +684,7 @@ class SpaceTravelDB(QMainWindow):
 
     def create_spacestation_table(self, cursor):
         cursor.execute("""
-        CREATE TABLE spacestations (
+        CREATE TABLE IF NOT EXISTS spacestations (
             station_name VARCHAR(50) NOT NULL PRIMARY KEY,
             planet_associated VARCHAR(50) DEFAULT NULL,
             FOREIGN KEY (planet_associated) REFERENCES planets(planet_name) 
@@ -620,7 +694,7 @@ class SpaceTravelDB(QMainWindow):
 
     def create_spaceports_table(self, cursor):
         cursor.execute("""
-        CREATE TABLE spaceports (
+        CREATE TABLE IF NOT EXISTS spaceports (
             spaceport_id INT PRIMARY KEY AUTO_INCREMENT,
             port_name VARCHAR(100) NOT NULL,
             planet_associated VARCHAR(50) NULL,
@@ -639,7 +713,7 @@ class SpaceTravelDB(QMainWindow):
 
     def create_spacecrafts_table(self, cursor):
         cursor.execute("""
-        CREATE TABLE spacecrafts (
+        CREATE TABLE IF NOT EXISTS SpacecraftTypes (
         type_name VARCHAR(100) PRIMARY KEY,
         capacity  INT NOT NULL,
         max_range     INT NOT NULL,
@@ -651,7 +725,7 @@ class SpaceTravelDB(QMainWindow):
 
     def create_routes_table(self, cursor):
         cursor.execute("""
-        CREATE TABLE routes (
+        CREATE TABLE IF NOT EXISTS routes (
             route_id INT PRIMARY KEY AUTO_INCREMENT,
             origin_id INT NOT NULL,
             dest_id INT NOT NULL,
@@ -667,14 +741,14 @@ class SpaceTravelDB(QMainWindow):
 
     def create_flight_table(self, cursor):
         cursor.execute("""
-        CREATE TABLE flights (
+        CREATE TABLE IF NOT EXISTS flights (
         flight_number   VARCHAR(20) PRIMARY KEY,
         route_id        INT NOT NULL,
         spacecraft_type VARCHAR(100) NOT NULL,
         departure_time TIME NOT NULL,
         flight_duration DECIMAL(4,2) NOT NULL,
         FOREIGN KEY (route_id) REFERENCES routes(route_id),
-        FOREIGN KEY (spacecraft_type) REFERENCES spacecrafts(type_name),
+        FOREIGN KEY (spacecraft_type) REFERENCES SpacecraftTypes(type_name),
         CONSTRAINT chk_flight_duration CHECK (flight_duration > 0)
         )
         """)
@@ -682,7 +756,7 @@ class SpaceTravelDB(QMainWindow):
 
     def create_flight_schedule_table(self, cursor):
         cursor.execute("""
-        CREATE TABLE flight_schedule (
+        CREATE TABLE IF NOT EXISTS flight_schedule (
             flight_number VARCHAR(20) NOT NULL,
             day_of_week   ENUM(
                 'Monday','Tuesday','Wednesday',
@@ -717,7 +791,6 @@ class SpaceTravelDB(QMainWindow):
         # zero-pad and validate ranges
         hh, mm, ss = hh.zfill(2), mm.zfill(2), ss.zfill(2)
         return f"{hh}:{mm}:{ss}"
-
 
     def enter_planet(self, planet_name, size, population):
         if not planet_name.strip():
@@ -803,7 +876,7 @@ class SpaceTravelDB(QMainWindow):
             QMessageBox.critical(self, "Validation Error", "Range must be a positive integer.")
             return False
 
-        sql = """INSERT INTO spacecrafts VALUES (%s, %s, %s)"""
+        sql = """INSERT INTO SpacecraftTypes VALUES (%s, %s, %s)"""
         values = [type_name, capacity, range]
         return self.confirm_and_commit(sql, values)
 
@@ -839,18 +912,16 @@ class SpaceTravelDB(QMainWindow):
             return False
 
         # Validate spacecraft type exists
-        cursor.execute("SELECT COUNT(*) FROM spacecrafts WHERE type_name = %s", (spacecraft_type,))
+        cursor.execute("SELECT COUNT(*) FROM SpacecraftTypes WHERE type_name = %s", (spacecraft_type,))
         if cursor.fetchone()[0] == 0:
             QMessageBox.critical(self, "Validation Error", f"Spacecraft type '{spacecraft_type}' does not exist.")
             return False
         
-        cursor.execute("""
-            SELECT r.dist, s.max_range
-            FROM routes r
-            JOIN spacecrafts s ON s.type_name = %s
-            WHERE r.route_id = %s
-        """, (spacecraft_type, route_id))
-        dist, max_range = cursor.fetchone()
+        cursor.execute("SELECT distance FROM routes WHERE route_id = %s", (route_id,))
+        dist = cursor.fetchone()[0]
+
+        cursor.execute("SELECT max_range FROM SpacecraftTypes WHERE type_name = %s", (spacecraft_type,))
+        max_range = cursor.fetchone()[0]
         if dist > max_range:
             QMessageBox.critical(self, "Validation Error",
                 f"Route distance {dist} exceeds craft range {max_range}.")
@@ -891,7 +962,7 @@ class SpaceTravelDB(QMainWindow):
         
         # Check for same-planet violation
         cursor.execute("""
-            SELECT sp1.planet_name AS planet1, sp2.planet_name AS planet2
+            SELECT sp1.planet_associated AS planet1, sp2.planet_associated AS planet2
             FROM spaceports sp1, spaceports sp2
             WHERE sp1.spaceport_id = %s AND sp2.spaceport_id = %s
         """, (origin_id, dest_id))
@@ -964,10 +1035,19 @@ class SpaceTravelDB(QMainWindow):
             QMessageBox.critical(self, "Validation Error", "This route already exists.")
             return False
 
-        # Insert route using IDs
-        sql = """INSERT INTO routes (origin_id, dest_id, distance) VALUES (%s, %s, %s)"""
-        values = [origin_id, dest_id, distance]
-        return self.confirm_and_commit(sql, values)
+        # Insert route manually
+        cursor.execute("INSERT INTO routes (origin_id, dest_id, distance) VALUES (%s, %s, %s)", (origin_id, dest_id, distance))
+        self.db.commit()
+
+        # Retrieve and return the new route_id
+        cursor.execute("SELECT route_id FROM routes WHERE origin_id = %s AND dest_id = %s", (origin_id, dest_id))
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+        else:
+            QMessageBox.critical(self, "Database Error", "Failed to retrieve new route ID.")
+            return False
+
 
 
     # Query methods
@@ -992,7 +1072,7 @@ class SpaceTravelDB(QMainWindow):
     def get_departures_by_date_range_and_port(self, start_date, end_date, port_name):
         cursor = self.db.cursor()
         sql = """
-            SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration, r.dist AS distance, f.spacecraft_type
+            SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration, r.distance AS distance, f.spacecraft_type
             FROM flights f
             JOIN flight_schedule fs
                 ON f.flight_number = fs.flight_number
@@ -1014,7 +1094,7 @@ class SpaceTravelDB(QMainWindow):
     def get_arrivals_by_date_range_and_port(self, start_date, end_date, port_name):
         cursor = self.db.cursor()
         sql = """
-            SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration, r.dist AS distance, f.spacecraft_type
+            SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration, r.distance AS distance, f.spacecraft_type
             FROM flights f
             JOIN flight_schedule fs ON f.flight_number = fs.flight_number
             JOIN routes r
@@ -1036,7 +1116,7 @@ class SpaceTravelDB(QMainWindow):
         cursor = self.db.cursor()
         sql = """
             SELECT f.flight_number, fs.day_of_week, f.departure_time, f.flight_duration, 
-                   sp1.port_name AS origin, sp2.port_name AS destination, r.dist AS distance, f.spacecraft_type
+                   sp1.port_name AS origin, sp2.port_name AS destination, r.distance AS distance, f.spacecraft_type
             FROM flights f
             JOIN flight_schedule fs
                 ON f.flight_number = fs.flight_number
@@ -1071,8 +1151,21 @@ class SpaceTravelDB(QMainWindow):
         delta = (dt2 - dt1).total_seconds() / 3600
         return delta
 
-    def flight_finder(self, departure_day, origin_id, destination_id, start_time_str, max_stops, max_total_time):
+    def flight_finder(self, departure_day, origin_name, destination_name, start_time_str, max_stops, max_total_time):
         cursor = self.db.cursor(dictionary=True)
+
+        # Resolve origin and destination names to IDs
+        cursor.execute("SELECT spaceport_id FROM spaceports WHERE port_name = %s", (origin_name,))
+        origin_result = cursor.fetchone()
+        cursor.execute("SELECT spaceport_id FROM spaceports WHERE port_name = %s", (destination_name,))
+        dest_result = cursor.fetchone()
+
+        if not origin_result or not dest_result:
+            QMessageBox.critical(self, "Input Error", "Invalid origin or destination port name.")
+            return
+
+        origin_id = origin_result['spaceport_id']
+        destination_id = dest_result['spaceport_id']
         start_time = self.parse_time(start_time_str)
         results = []
 
@@ -1082,7 +1175,7 @@ class SpaceTravelDB(QMainWindow):
 
             cursor.execute("""
                 SELECT f.flight_number, f.departure_time, f.flight_duration, 
-                    f.spacecraft_type, r.origin_id, r.dest_id, r.dist
+                    f.spacecraft_type, r.origin_id, r.dest_id, r.distance
                 FROM flights f
                 JOIN flight_schedule fs ON f.flight_number = fs.flight_number
                 JOIN routes r ON f.route_id = r.route_id
@@ -1225,7 +1318,7 @@ class SpaceTravelDB(QMainWindow):
             self.create_spacestation_table(cursor)
         if not self.table_exists(cursor, "spaceports"):
             self.create_spaceports_table(cursor)
-        if not self.table_exists(cursor, "spacecrafts"):
+        if not self.table_exists(cursor, "SpacecraftTypes"):
             self.create_spacecrafts_table(cursor)
         if not self.table_exists(cursor, "routes"):
             self.create_routes_table(cursor)
