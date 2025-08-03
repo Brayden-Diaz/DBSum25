@@ -39,13 +39,13 @@ CREATE TABLE SpacecraftTypes (
 CREATE TABLE Routes (
     route_id        INT AUTO_INCREMENT PRIMARY KEY,
     origin_id       INT NOT NULL,
-    destination_id  INT NOT NULL,
+    dest_id  INT NOT NULL,
     distance        INT NOT NULL,
     CONSTRAINT fk_route_origin   FOREIGN KEY (origin_id)      REFERENCES Spaceports(spaceport_id),
-    CONSTRAINT fk_route_dest     FOREIGN KEY (destination_id) REFERENCES Spaceports(spaceport_id),
+    CONSTRAINT fk_route_dest     FOREIGN KEY (dest_id) REFERENCES Spaceports(spaceport_id),
     CONSTRAINT chk_route_distance CHECK (distance > 0),
-    CONSTRAINT chk_route_not_same CHECK (origin_id <> destination_id),
-    CONSTRAINT uq_route_pair      UNIQUE (origin_id, destination_id)
+    CONSTRAINT chk_route_not_same CHECK (origin_id <> dest_id),
+    CONSTRAINT uq_route_pair      UNIQUE (origin_id, dest_id)
 );
 
 CREATE TABLE Flights (

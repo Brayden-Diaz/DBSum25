@@ -273,11 +273,11 @@ class SpaceTravelDB(QMainWindow):
         group = QGroupBox("Add Route")
         layout = QGridLayout(group)
         
-        layout.addWidget(QLabel("Origin Port ID:"), 0, 0)
+        layout.addWidget(QLabel("Origin Port Name:"), 0, 0)
         self.route_origin_entry = QLineEdit()
         layout.addWidget(self.route_origin_entry, 0, 1)
         
-        layout.addWidget(QLabel("Destination Port ID:"), 1, 0)
+        layout.addWidget(QLabel("Destination Port Name:"), 1, 0)
         self.route_dest_entry = QLineEdit()
         layout.addWidget(self.route_dest_entry, 1, 1)
         
@@ -366,7 +366,7 @@ class SpaceTravelDB(QMainWindow):
             dist, ok3 = QInputDialog.getInt(self, "Route Distance", "Enter distance:")
             if not ok3 or dist <= 0:
                 return
-            if not self.enter_route(src_id, dest_id, dist):
+            if not self.enter_route(source, dest, dist):
                 return
             cursor.execute("SELECT route_id FROM routes WHERE origin_id = %s AND dest_id = %s", (src_id, dest_id))
             route_id = cursor.fetchone()[0]
@@ -479,15 +479,19 @@ class SpaceTravelDB(QMainWindow):
 
     def submit_route(self):
         try:
-            origin = int(self.route_origin_entry.text())
-            dest = int(self.route_dest_entry.text())
+            origin = self.route_origin_entry.text().strip()
+            dest = self.route_dest_entry.text().strip()
             distance = int(self.route_distance_entry.text())
-            
+
+            if not origin or not dest:
+                QMessageBox.warning(self, "Invalid Input", "Please enter valid port names.")
+                return
+
             if self.enter_route(origin, dest, distance):
                 self.clear_route_form()
                 QMessageBox.information(self, "Success", "Route added successfully!")
         except ValueError:
-            QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric values.")
+            QMessageBox.warning(self, "Invalid Input", "Please enter valid numeric distance.")
 
     def submit_flight(self):
         try:
@@ -923,8 +927,8 @@ class SpaceTravelDB(QMainWindow):
 
         return True
     
-    def enter_route(self, origin_id, dest_id, distance):
-        if origin_id == dest_id:
+    def enter_route(self, origin_name, dest_name, distance):
+        if origin_name == dest_name:
             QMessageBox.critical(self, "Validation Error", "Origin and destination spaceports must be different.")
             return False
 
@@ -934,26 +938,37 @@ class SpaceTravelDB(QMainWindow):
 
         cursor = self.db.cursor()
 
+        # Get spaceport IDs and planet names from names
+        cursor.execute("SELECT spaceport_id, planet_associated FROM spaceports WHERE port_name = %s", (origin_name,))
+        origin_result = cursor.fetchone()
+        if not origin_result:
+            QMessageBox.critical(self, "Validation Error", f"Origin spaceport '{origin_name}' not found.")
+            return False
+        origin_id, origin_planet = origin_result
+
+        cursor.execute("SELECT spaceport_id, planet_associated FROM spaceports WHERE port_name = %s", (dest_name,))
+        dest_result = cursor.fetchone()
+        if not dest_result:
+            QMessageBox.critical(self, "Validation Error", f"Destination spaceport '{dest_name}' not found.")
+            return False
+        dest_id, dest_planet = dest_result
+
         # Enforce no routes between spaceports on the same planet
-        cursor.execute("""
-            SELECT sp1.planet_name, sp2.planet_name
-            FROM spaceports sp1, spaceports sp2
-            WHERE sp1.spaceport_id = %s AND sp2.spaceport_id = %s
-        """, (origin_id, dest_id))
-        result = cursor.fetchone()
-        if result and result[0] and result[1] and result[0] == result[1]:
+        if origin_planet and dest_planet and origin_planet == dest_planet:
             QMessageBox.critical(self, "Validation Error", "Routes are not allowed between spaceports on the same planet.")
             return False
 
-        # Check for duplicates
+        # Check for duplicates using IDs
         cursor.execute("SELECT COUNT(*) FROM routes WHERE origin_id = %s AND dest_id = %s", (origin_id, dest_id))
         if cursor.fetchone()[0] > 0:
             QMessageBox.critical(self, "Validation Error", "This route already exists.")
             return False
 
-        sql = """INSERT INTO routes (origin_id, dest_id, dist) VALUES (%s, %s, %s)"""
+        # Insert route using IDs
+        sql = """INSERT INTO routes (origin_id, dest_id, distance) VALUES (%s, %s, %s)"""
         values = [origin_id, dest_id, distance]
         return self.confirm_and_commit(sql, values)
+
 
     # Query methods
     def get_port_by_port_name_with_flights(self, port_name):
