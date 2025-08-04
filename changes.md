@@ -32,6 +32,7 @@ The web version abstracts DB logic behind a typed API layer and performs **input
 
 ## Key Improvements in New Logic
 
+- **Improved Port Representation in UI**: Frontend now displays spaceport names **with their associated planet** (e.g. "Port Alpha – Mars") to improve clarity and prevent user confusion when ports on different planets have similar names.
 - **Backend Separation**: Routes modularized by functionality (`/api/query`, `/api/planets`, etc.)
 - **Validation Layers**: Every POST endpoint checks for missing/invalid data
 - **Flight Creation Logic**:
